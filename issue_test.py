@@ -1,59 +1,33 @@
-"""
-Minimal reproducible code for issue #1763 - BEFORE PR 1765
-This demonstrates the issue where Snowflake // comments were not supported
+import pytest
 
-Issue: Snowflake dialect should support // as a comment delimiter
-Query: SELECT 1 // hi this is a comment
-Expected: Should parse successfully (works in Snowflake)
-Actual: Throws parse error (in versions before PR 1765)
-"""
-
-import sys
-sys.path.insert(0, 'C:/Bug_Bash/sqlglot/sqlglot')
-
-from sqlglot import parse_one
+from sqlglot import parse_one, tokenize
+from sqlglot.tokens import TokenType
 
 
-def test_snowflake_comments():
-    """Test all Snowflake comment styles"""
-    
-    test_cases = [
-        ("SELECT 1 -- traditional SQL comment", "Traditional -- comment"),
-        ("SELECT 1 /* block comment */", "Block /* */ comment"),
-        ("SELECT 1 // C++ style comment", "C++ style // comment"),
-    ]
-    
-    print("=" * 60)
-    print("Testing Snowflake Comment Parsing (Issue #1763)")
-    print("=" * 60)
-    print()
-    
-    results = []
-    for query, description in test_cases:
-        print(f"Test: {description}")
-        print(f"Query: {query}")
-        print("-" * 60)
-        
-        try:
-            result = parse_one(query, read='snowflake')
-            print("✓ PASSED - Parsing succeeded!")
-            print(f"  Result: {result}")
-            results.append(True)
-        except Exception as e:
-            print("✗ FAILED - Parsing error!")
-            print(f"  Error: {type(e).__name__}: {e}")
-            results.append(False)
-        
-        print()
-    
-    # Summary
-    print("=" * 60)
-    print(f"Summary: {sum(results)}/{len(results)} tests passed")
-    print("=" * 60)
-    
-    return all(results)
+def parse_sf(sql: str):
+    return parse_one(sql, read="snowflake")
 
 
-if __name__ == "__main__":
-    success = test_snowflake_comments()
-    exit(0 if success else 1)
+@pytest.mark.parametrize(
+    "query",
+    [
+        "SELECT 1 -- traditional SQL comment",
+        "SELECT 1 /* block comment */",
+        "SELECT 1 // C++ style comment",
+    ],
+)
+def test_snowflake_comment_styles_equivalent(query):
+    assert parse_sf(query) == parse_sf("SELECT 1")
+
+
+def test_double_slash_not_division():
+    # If // were treated as division, this would misparse; instead it's a comment
+    assert parse_sf("SELECT 4 // 2") == parse_sf("SELECT 4")
+
+
+@pytest.mark.parametrize("dialect", ["ansi", "snowflake"])
+def test_template_comment_tokenized_as_single_comment(dialect):
+    tokens = tokenize("SELECT {# template #} 1", read=dialect)
+    comment_tokens = [t for t in tokens if t.type == TokenType.COMMENT]
+    assert len(comment_tokens) == 1
+    assert comment_tokens[0].text == "{# template #}"
