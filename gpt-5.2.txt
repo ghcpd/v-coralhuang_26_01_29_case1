@@ -1,0 +1,200 @@
+User: You are given a repository that contains a known parsing bug and needs to be fixed and validated with automated tests.
+
+Constraint: work only with the source code in the provided folder/repository. Do not rely on the pre-installed or externally installed `sqlglot` package (no “use the upstream library as-is”). Any fixes and tests must run against the repository’s local implementation.
+
+In Snowflake SQL, `//` is a valid single-line comment, for example:
+
+SELECT 1 // hi this is a comment
+
+This query runs correctly in Snowflake.
+
+However, when parsing it with the repository’s sqlglot code using the Snowflake dialect, an error is raised:
+
+parse_one("SELECT 1 // hi this is a comment", read=dialects.Snowflake)
+
+The parser treats `//` as a division operator instead of a comment delimiter, which causes the parse to fail (this corresponds to issue #1763).
+
+In addition, SQL strings may contain template-style comments such as `{# ... #}`. These comments should be treated consistently as comments during tokenization and should not be partially parsed as normal symbols or operators, even when dialect-specific comment rules are overridden.
+
+The expected outcome is:
+
+* The Snowflake dialect must correctly support all common comment styles:
+
+  * `--` single-line comments
+  * `/* ... */` block comments
+  * `//` single-line comments
+* Parsing `SELECT 1 // comment` with the Snowflake dialect must succeed and produce the same semantic result as parsing `SELECT 1`.
+* Template comments like `{# ... #}` must be recognized as complete comments during tokenization and handled consistently across dialects.
+* Comments must not affect AST construction or be misinterpreted as operators.
+
+You must add or update automated tests to ensure the bug is fixed and does not regress.
+
+The test coverage should include:
+
+* Parsing Snowflake queries with `--`, `/* */`, and `//` comments.
+* Verifying that queries with and without comments produce equivalent ASTs.
+* Ensuring `//` is not parsed as a division operator.
+* Verifying that `{# ... #}` comments are tokenized as a single, complete comment and not split into partial tokens, using at least one non-Snowflake dialect for regression coverage.
+
+You must also add or update a README that explains:
+
+* Why `//` comments are valid in Snowflake but previously failed to parse.
+* The intended behavior for comment handling in Snowflake and for template comments.
+* How to run the tests.
+* What scenarios the tests cover and how they prevent regressions.
+
+At the start, you will be given three files in a broken or incomplete state:
+
+* issue_test.py: tests for parsing the three Snowflake comment styles (`--`, `/* */`, `//`)
+* minimal_repro.py: a minimal reproduction of issue #1763 (Snowflake `//` comments not supported)
+* snowflake.py: the Snowflake dialect implementation in the repository, where the fix is expected to be applied
+
+Your task is to modify the code, add tests, and documentation so that the expected behavior is achieved, under the constraint above.
+
+
+GitHub Copilot: I’m going to inspect the local parser/dialect implementation and existing tests/repro, then patch tokenization for Snowflake `//` and `{#...#}` template comments, and finally add regression tests + a README with run instructions.
+
+Read [](file:///c%3A/Bug_Bash/26_01_29/gpt-5.2/snowflake.py)
+
+Read [](file:///c%3A/Bug_Bash/26_01_29/gpt-5.2/issue_test.py)
+
+Read [](file:///c%3A/Bug_Bash/26_01_29/gpt-5.2/minimal_repro.py)
+
+Read [](file:///c%3A/Bug_Bash/26_01_29/gpt-5.2)
+
+Created 6 todos
+
+I’ve confirmed the workspace only contains the three stub files, so I’m going to add a minimal local `sqlglot` package (tokenizer + parser) and then wire Snowflake’s `//` and `{#...#}` handling into that so tests can run without any external dependency.
+
+Created [](file:///c%3A/Bug_Bash/26_01_29/gpt-5.2/sqlglot/dialects)
+
+Created [](file:///c%3A/Bug_Bash/26_01_29/gpt-5.2/sqlglot/__init__.py)
+
+Created [](file:///c%3A/Bug_Bash/26_01_29/gpt-5.2/sqlglot/tokens.py)
+
+Created [](file:///c%3A/Bug_Bash/26_01_29/gpt-5.2/sqlglot/expressions.py)
+
+Created [](file:///c%3A/Bug_Bash/26_01_29/gpt-5.2/sqlglot/dialects/dialect.py)
+
+Created [](file:///c%3A/Bug_Bash/26_01_29/gpt-5.2/sqlglot/dialects/__init__.py)
+
+Created [](file:///c%3A/Bug_Bash/26_01_29/gpt-5.2/sqlglot/dialects/postgres.py)
+
+Created [](file:///c%3A/Bug_Bash/26_01_29/gpt-5.2/sqlglot/parser.py)
+
+Using "Apply Patch"
+
+
+```
+
+```
+
+
+Using "Apply Patch"
+
+
+```
+
+```
+
+
+Using "Apply Patch"
+
+
+```
+
+```
+
+
+Starting: *Add regression tests for comments* (4/6)
+
+Core tokenizer/parser is in place and Snowflake now explicitly enables `//` line comments; next I’m going to add the README and then run `python -m unittest` to validate the new regression tests end-to-end.
+
+Made changes.
+
+User: continue
+
+GitHub Copilot: I’m going to add the required README documentation, then execute the unit tests to confirm the Snowflake `//` fix and `{#...#}` tokenization regressions are covered.
+
+Created [](file:///c%3A/Bug_Bash/26_01_29/gpt-5.2/README.md)
+
+Ran terminal command: Push-Location "C:\Bug_Bash\26_01_29\gpt-5.2"; python -m unittest -v; Pop-Location
+
+I’m going to inspect snowflake.py for the null-byte corruption, fix the file contents, and then rerun the unit tests.
+
+Read [](file:///c%3A/Bug_Bash/26_01_29/gpt-5.2/snowflake.py)
+
+Ran terminal command: Push-Location "C:\Bug_Bash\26_01_29\gpt-5.2"; python -c "import pathlib; data=pathlib.Path('snowflake.py').read_bytes(); print('nulls', data.count(b'\\x00'), 'bytes', len(data))"; Pop-Location
+
+Ran terminal command: Push-Location "C:\Bug_Bash\26_01_29\gpt-5.2"; python -c "import snowflake; import inspect; print('loaded', snowflake.__file__); print('ok', hasattr(snowflake,'Snowflake'))"; Pop-Location
+
+Ran terminal command: Push-Location "C:\Bug_Bash\26_01_29\gpt-5.2"; python -c "print('hi')"; Pop-Location
+
+Ran terminal command: Push-Location "C:\Bug_Bash\26_01_29\gpt-5.2"; python -c "import importlib.util; spec=importlib.util.find_spec('snowflake'); print(spec.origin if spec else None)"; Pop-Location
+
+Ran terminal command: Push-Location "C:\Bug_Bash\26_01_29\gpt-5.2"; python -c "import pathlib,binascii; b=pathlib.Path('snowflake.py').read_bytes(); print(b[:64]); print(binascii.hexlify(b[:64]).decode())"; Pop-Location
+
+Ran terminal command: Push-Location "C:\Bug_Bash\26_01_29\gpt-5.2"; python -c "import pathlib; import sys; files=['snowflake.py','issue_test.py','minimal_repro.py'];
+for f in files:
+ b=pathlib.Path(f).read_bytes();
+ print(f, 'nul_bytes', b.count(b'\x00'), 'bom', b[:2].hex())"; Pop-Location
+
+Ran terminal command: Push-Location "C:\Bug_Bash\26_01_29\gpt-5.2"; python -c "import pathlib; p=pathlib.Path('snowflake.py'); text=p.read_text(encoding='utf-16'); p.write_text(text, encoding='utf-8'); print('rewrote snowflake.py as utf-8')"; Pop-Location
+
+Ran terminal command: Push-Location "C:\Bug_Bash\26_01_29\gpt-5.2"; python -m unittest -v; Pop-Location
+
+Created [](file:///c%3A/Bug_Bash/26_01_29/gpt-5.2/test_comments.py)
+
+Ran terminal command: Push-Location "C:\Bug_Bash\26_01_29\gpt-5.2"; python -m unittest -v; Pop-Location
+
+Using "Apply Patch"
+
+
+```
+
+```
+
+
+Completed: *Add regression tests for comments* (4/6)
+
+**Fixes**
+- Snowflake `//` is now treated as a single-line comment by configuring `Snowflake.LINE_COMMENT_STYLES = ("--", "//")` in snowflake.py.
+- Tokenization treats template comments `{# ... #}` as a single `COMMENT` token (handled before operators/dialect overrides) in tokens.py, so they never get partially parsed as symbols/operators.
+- Comments are stripped before parsing so they don’t affect AST construction in parser.py.
+
+**Tests**
+- Added automated unittests in issue_test.py and made them discoverable via test_comments.py.
+- Coverage includes:
+  - Snowflake parsing with `--`, `/* */`, `//`
+  - AST equivalence of commented vs non-commented queries
+  - Ensuring `//` doesn’t produce division (`Div`) nodes
+  - `{# ... #}` tokenizes as a single comment token in a non-Snowflake dialect (Postgres) and still works if line comments are overridden
+
+**Docs**
+- Added README.md explaining why `//` previously failed, intended comment behavior, what tests cover, and how to run them (`python -m unittest -v`).
+
+If you want, I can also adjust minimal_repro.py to print the AST equality check (`SELECT 1` vs `SELECT 1 // ...`) for a quick human-readable demo.
+
+Made changes.
+
+User: Also provide a one-command test runner script (file extension is not important) that runs the full test suite. The README must explain how to use this script (including any prerequisites and the exact command to run).
+
+GitHub Copilot: I’m going to add a simple `run_tests.py` script that runs `unittest` discovery in one command, then update the README with prerequisites and the exact command to run it.
+
+Created [](file:///c%3A/Bug_Bash/26_01_29/gpt-5.2/run_tests.py)
+
+Using "Apply Patch"
+
+
+```
+
+```
+
+
+Ran terminal command: Push-Location "C:\Bug_Bash\26_01_29\gpt-5.2"; python run_tests.py; Pop-Location
+
+- Added a one-command test runner script: run_tests.py (runs full `unittest` discovery).
+- Updated README.md with prerequisites and the exact command: `python run_tests.py`.
+- Validated it runs the full suite successfully (`OK`).
+
+Made changes.

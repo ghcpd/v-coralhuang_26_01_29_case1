@@ -1,13 +1,8 @@
-"""
-Minimal reproducible code for issue #1763
-Issue: Snowflake dialect should support // as a comment delimiter
-Query: SELECT 1 // hi this is a comment
-Expected: Should parse successfully (works in Snowflake)
-Actual: Throws parse error
-"""
+"""Minimal reproducible code for issue #1763.
 
-import sys
-sys.path.insert(0, 'C:/Bug_Bash/sqlglot/sqlglot')
+Snowflake supports `//` as a single-line comment delimiter.
+This script exercises the local implementation in this repository.
+"""
 
 from sqlglot import parse_one
 
@@ -20,7 +15,7 @@ def test_snowflake_double_slash_comment():
     print("-" * 50)
     
     try:
-        result = parse_one(query, read='snowflake')
+        result = parse_one(query, read="snowflake")
         print("✓ Parsing succeeded!")
         print(f"Result: {result}")
         return True

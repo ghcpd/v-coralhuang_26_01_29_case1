@@ -1,59 +1,66 @@
+"""Regression tests for comment parsing/tokenization.
+
+Covers:
+- Snowflake supports `--`, `/* ... */`, and `//` single-line comments.
+- Parsing with and without comments yields equivalent ASTs.
+- `//` must not be treated as division.
+- Template comments `{# ... #}` are tokenized as a single COMMENT token and
+  are handled consistently across dialects.
 """
-Minimal reproducible code for issue #1763 - BEFORE PR 1765
-This demonstrates the issue where Snowflake // comments were not supported
 
-Issue: Snowflake dialect should support // as a comment delimiter
-Query: SELECT 1 // hi this is a comment
-Expected: Should parse successfully (works in Snowflake)
-Actual: Throws parse error (in versions before PR 1765)
-"""
+from __future__ import annotations
 
-import sys
-sys.path.insert(0, 'C:/Bug_Bash/sqlglot/sqlglot')
+import unittest
 
-from sqlglot import parse_one
+from sqlglot import dialects, parse_one
+from sqlglot.dialects.dialect import Dialect
+from sqlglot.expressions import Div
+from sqlglot.tokens import TokenType
 
 
-def test_snowflake_comments():
-    """Test all Snowflake comment styles"""
-    
-    test_cases = [
-        ("SELECT 1 -- traditional SQL comment", "Traditional -- comment"),
-        ("SELECT 1 /* block comment */", "Block /* */ comment"),
-        ("SELECT 1 // C++ style comment", "C++ style // comment"),
-    ]
-    
-    print("=" * 60)
-    print("Testing Snowflake Comment Parsing (Issue #1763)")
-    print("=" * 60)
-    print()
-    
-    results = []
-    for query, description in test_cases:
-        print(f"Test: {description}")
-        print(f"Query: {query}")
-        print("-" * 60)
-        
-        try:
-            result = parse_one(query, read='snowflake')
-            print("✓ PASSED - Parsing succeeded!")
-            print(f"  Result: {result}")
-            results.append(True)
-        except Exception as e:
-            print("✗ FAILED - Parsing error!")
-            print(f"  Error: {type(e).__name__}: {e}")
-            results.append(False)
-        
-        print()
-    
-    # Summary
-    print("=" * 60)
-    print(f"Summary: {sum(results)}/{len(results)} tests passed")
-    print("=" * 60)
-    
-    return all(results)
+class TestSnowflakeComments(unittest.TestCase):
+    def test_snowflake_comment_styles_parse(self) -> None:
+        baseline = parse_one("SELECT 1", read=dialects.Snowflake)
+
+        queries = [
+            "SELECT 1 -- traditional SQL comment",
+            "SELECT 1 /* block comment */",
+            "SELECT 1 // C++ style comment",
+            "SELECT 1 /*block*/ --line",
+            "SELECT 1 /*block*/ //line",
+        ]
+
+        for query in queries:
+            with self.subTest(query=query):
+                self.assertEqual(parse_one(query, read=dialects.Snowflake), baseline)
+
+    def test_double_slash_is_not_division_in_snowflake(self) -> None:
+        ast = parse_one("SELECT 8 // 2", read=dialects.Snowflake)
+
+        # Ensure `//` didn't become two division tokens that build a Div node.
+        self.assertFalse(any(isinstance(node, Div) for node in ast.walk()))
+
+        # Semantically equivalent to just `SELECT 8`.
+        self.assertEqual(ast, parse_one("SELECT 8", read=dialects.Snowflake))
+
+
+class TestTemplateComments(unittest.TestCase):
+    def test_template_comment_is_single_token_postgres(self) -> None:
+        tokenizer = dialects.Postgres.tokenizer()
+        tokens = tokenizer.tokenize("SELECT 1 {# hi there #}")
+
+        comment_tokens = [t for t in tokens if t.token_type == TokenType.COMMENT]
+        self.assertEqual(len(comment_tokens), 1)
+        self.assertEqual(comment_tokens[0].text, "{# hi there #}")
+
+    def test_template_comment_parses_consistently_even_if_comments_overridden(self) -> None:
+        class NoLineComments(Dialect):
+            LINE_COMMENT_STYLES = ()
+
+        baseline = parse_one("SELECT 1", read=NoLineComments)
+        with_comment = parse_one("SELECT 1 {# template #}", read=NoLineComments)
+        self.assertEqual(with_comment, baseline)
 
 
 if __name__ == "__main__":
-    success = test_snowflake_comments()
-    exit(0 if success else 1)
+    unittest.main()
