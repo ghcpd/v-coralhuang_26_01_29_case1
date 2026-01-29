@@ -1,232 +1,323 @@
-# Snowflake Comment Parsing Fix
+# Snowflake Comment Parsing Bug Fix (Issue #1763)
 
 ## Overview
 
-This repository contains the fix for issue #1763: **Snowflake dialect should support `//` as a comment delimiter**.
+This repository contains a fix for issue #1763 in sqlglot's Snowflake dialect parser. The issue prevented parsing of Snowflake SQL queries that use `//` as a single-line comment delimiter, which is valid syntax in Snowflake.
 
 ## The Problem
 
-Snowflake SQL supports three types of comment syntax:
-1. `--` (standard SQL single-line comments)
-2. `/* ... */` (standard SQL block comments)
-3. `//` (C++ style single-line comments, Snowflake-specific)
+### Issue Description
 
-Prior to this fix, the sqlglot parser's Snowflake dialect did not explicitly configure support for `//` comments, which could lead to parsing errors or incorrect interpretation of `//` as a division operator.
+Snowflake SQL supports three types of comments:
+- `--` - Traditional SQL single-line comments
+- `/* ... */` - Block comments
+- `//` - C++-style single-line comments (the problematic case)
 
-Additionally, template-style comments `{# ... #}` (commonly used in Jinja templates) needed to be properly handled during tokenization to ensure they are treated as complete comment blocks rather than being split into partial tokens.
+Before this fix, when parsing a query like:
+
+```sql
+SELECT 1 // this is a comment
+```
+
+The parser would fail because it incorrectly interpreted `//` as a division operator instead of recognizing it as a comment delimiter.
+
+### Why This Happens
+
+The sqlglot parser's tokenizer needs to be explicitly configured to recognize comment delimiters for each dialect. The Snowflake tokenizer was missing the `//` comment style in its `COMMENTS` configuration, causing the parser to treat it as two consecutive division operators.
+
+### Real-World Impact
+
+This bug affects any Snowflake queries that use `//` comments, which is a common practice for:
+- Code generators that output SQL with inline documentation
+- Migration scripts from C++ codebases
+- Teams that prefer `//` for consistency with other languages
+- Auto-generated SQL from tools that use `//` comments
 
 ## The Solution
 
-### Changes Made
+### Code Changes
 
-#### 1. Snowflake Tokenizer Configuration ([snowflake.py](snowflake.py))
-
-Added explicit `COMMENTS` configuration to the `Snowflake.Tokenizer` class:
+The fix modifies the `Snowflake.Tokenizer` class in [snowflake.py](snowflake.py) to include `//` in the list of recognized comment delimiters:
 
 ```python
 class Tokenizer(tokens.Tokenizer):
-    # ... other configuration ...
+    # ... other configurations ...
     
-    # Snowflake supports three comment styles:
-    # - Single-line: -- (standard SQL)
-    # - Single-line: // (C++ style, Snowflake-specific)
-    # - Block: /* */ (standard SQL)
-    # - Template: {# #} (Jinja-style template comments)
+    # Add support for //, --, /* */, and {# #} comments
     COMMENTS = ["--", "//", ("/*", "*/"), ("{#", "#}")]
 ```
 
-This explicit configuration ensures that:
-- The tokenizer recognizes `//` as a comment delimiter, not as a division operator
-- All three comment styles are properly tokenized and handled during parsing
-- Template comments `{# ... #}` are recognized as single comment tokens
-- Comments do not interfere with AST construction
+### Additional Improvements
 
-### Why This Fix Works
+While fixing the `//` comment issue, we also added support for template-style comments `{# ... #}` which are used in some templating systems (like Jinja2) and should be consistently recognized across dialects.
 
-1. **Explicit Declaration**: By explicitly declaring all supported comment styles in the `COMMENTS` configuration, we ensure the tokenizer correctly identifies comment delimiters before attempting to parse operators.
+## Comment Handling Behavior
 
-2. **Tokenization Priority**: Comment tokens are processed during the tokenization phase, before operator parsing, which prevents `//` from being misinterpreted as a division operator.
+### Supported Comment Styles in Snowflake
 
-3. **Dialect-Specific Behavior**: The configuration is specific to the Snowflake dialect, ensuring that Snowflake-specific comment syntax doesn't affect other SQL dialects.
+After the fix, the Snowflake dialect correctly supports all four comment styles:
 
-4. **Template Comment Support**: Including `{# #}` comments ensures compatibility with template-based SQL generation tools (like Jinja/dbt), where template comments should be completely removed during tokenization.
+1. **Traditional SQL comments**: `--`
+   ```sql
+   SELECT 1 -- this is a comment
+   ```
 
-## Test Coverage
+2. **Block comments**: `/* ... */`
+   ```sql
+   SELECT 1 /* this is a comment */ FROM table
+   ```
 
-The fix includes comprehensive test coverage to ensure correctness and prevent regressions:
+3. **C++ style comments**: `//` (the main fix)
+   ```sql
+   SELECT 1 // this is a comment
+   ```
 
-### Test Files
+4. **Template comments**: `{# ... #}`
+   ```sql
+   SELECT 1 {# this is a template comment #}
+   ```
 
-1. **[minimal_repro.py](minimal_repro.py)**: Minimal reproduction of issue #1763
-   - Tests basic `//` comment parsing
-   - Verifies the original issue is fixed
+### AST Equivalence
 
-2. **[issue_test.py](issue_test.py)**: Basic test for all three Snowflake comment styles
-   - Tests `--` comments
-   - Tests `/* */` comments
-   - Tests `//` comments
+Comments are stripped during tokenization and do not affect the Abstract Syntax Tree (AST). This means:
 
-3. **[test_comprehensive.py](test_comprehensive.py)**: Comprehensive test suite covering:
-   - **AST Equivalence**: Verifies queries with different comment styles produce semantically equivalent ASTs
-   - **Division vs Comment**: Ensures `//` is not parsed as a division operator
-   - **Template Comments**: Tests `{# ... #}` comment handling across multiple dialects
-   - **Multiline Scenarios**: Tests complex comment scenarios including multiline comments
-   - **Edge Cases**: Tests comments in string literals, at end of queries, etc.
-
-### Test Scenarios Covered
-
-✅ Parsing Snowflake queries with `--`, `/* */`, and `//` comments  
-✅ Verifying queries with and without comments produce equivalent ASTs  
-✅ Ensuring `//` is not parsed as a division operator  
-✅ Template comments `{# ... #}` tokenized as single, complete comments  
-✅ Template comments tested across multiple dialects (Snowflake, PostgreSQL, MySQL)  
-✅ Multiline block comments  
-✅ Comments at end of queries  
-✅ Comments in select lists  
-✅ Comments inside string literals (should be preserved)  
-✅ Comments between statements  
-
-## Running the Tests
-
-### Prerequisites
-
-- Python 3.7+
-- The sqlglot package must be available at `C:/Bug_Bash/sqlglot/sqlglot` (as configured in the test files)
-- No external dependencies required beyond the local sqlglot implementation
-
-### Running Individual Tests
-
-```powershell
-# Run minimal reproduction test
-python minimal_repro.py
-
-# Run basic comment style tests
-python issue_test.py
-
-# Run comprehensive test suite
-python test_comprehensive.py
+```sql
+SELECT 1
+SELECT 1 -- comment
+SELECT 1 /* comment */
+SELECT 1 // comment
+SELECT 1 {# comment #}
 ```
 
-### Running All Tests (One Command)
+All of these queries produce the **exact same AST**: `SELECT 1`
 
-Use the provided test runner script:
+This is the correct behavior because comments are metadata for humans and should not change the semantic meaning of the SQL.
 
-```powershell
-# Run all tests at once (recommended)
+## Testing
+
+### Test Coverage
+
+The test suite includes comprehensive coverage for:
+
+1. **Basic Comment Parsing** ([issue_test.py](issue_test.py))
+   - Verifies all comment styles parse without errors
+   - Tests `--`, `/* */`, `//`, and `{# #}` comments
+
+2. **AST Equivalence**
+   - Ensures queries with and without comments produce identical ASTs
+   - Validates comments don't affect semantic meaning
+
+3. **Division vs Comment**
+   - Specifically tests that `//` is not misinterpreted as division
+   - Ensures the AST contains no division operators when using `//` comments
+
+4. **Multiple Comments**
+   - Tests queries with multiple comment styles in a single query
+   - Validates mixed comment usage
+
+5. **Cross-Dialect Regression**
+   - Tests template comments in other dialects (PostgreSQL, MySQL, SQLite)
+   - Ensures the fix doesn't break other dialects
+
+### Running the Tests
+
+#### Prerequisites
+
+- Python 3.7 or higher
+- The sqlglot library installed in `C:/Bug_Bash/sqlglot/sqlglot` (as configured in the test files)
+
+#### One-Command Test Execution
+
+Run all tests with a single command:
+
+```bash
 python run_tests.py
 ```
 
-**Note**: The PowerShell script `run_tests.ps1` is also provided, but may encounter Unicode encoding issues in some environments. The Python runner (`run_tests.py`) is the recommended method.
+This will execute:
+1. The minimal reproduction case ([minimal_repro.py](minimal_repro.py))
+2. The comprehensive test suite ([issue_test.py](issue_test.py))
 
-If you want to use the PowerShell script:
+#### Running Individual Test Files
 
-```powershell
-# Run all tests using PowerShell (may have Unicode issues)
-.\run_tests.ps1
+You can also run tests individually:
+
+```bash
+# Minimal reproduction of the original issue
+python minimal_repro.py
+
+# Comprehensive test suite
+python issue_test.py
 ```
 
 ### Expected Output
 
-All tests should pass with output similar to:
+When all tests pass, you should see output like:
 
 ```
-✓ PASSED: Comment Styles - AST Equivalence
-✓ PASSED: // is Comment, Not Division
-✓ PASSED: Template Comments
-✓ PASSED: Multiline Comments
-✓ PASSED: Comment Edge Cases
+================================================================================
+OVERALL TEST SUMMARY
+================================================================================
+✓ PASSED: Minimal Reproduction (Issue #1763)
+✓ PASSED: Comprehensive Test Suite
 
-Total: 5/5 test suites passed
+Test Files: 2/2 passed
+
+🎉 ALL TESTS PASSED! The bug fix is working correctly.
+================================================================================
 ```
 
-## What the Tests Verify
+### Test File Descriptions
 
-### 1. Comment Style Equivalence
-Ensures that queries with different comment styles produce the same semantic result:
-- `SELECT 1` (no comment)
-- `SELECT 1 -- comment` (SQL style)
-- `SELECT 1 /* comment */` (block style)
-- `SELECT 1 // comment` (Snowflake C++ style)
+- **[minimal_repro.py](minimal_repro.py)**: A minimal reproduction of the original issue. Tests the specific failing case: `SELECT 1 // comment`
 
-All should produce equivalent ASTs when comments are stripped.
+- **[issue_test.py](issue_test.py)**: Comprehensive test suite with 5 test suites covering:
+  - Basic comment parsing for all styles
+  - AST equivalence verification
+  - Verification that `//` is not treated as division
+  - Multiple comments in single queries
+  - Template comment regression testing
 
-### 2. Division Operator vs Comment
-Verifies that `//` in `SELECT 1 // comment` is parsed as a comment, not as:
-- `SELECT (1 / /) comment` (division operator)
-- `SELECT 1 / / comment` (incomplete expression)
+- **[run_tests.py](run_tests.py)**: Test runner that executes all tests and provides a summary
 
-The test walks the AST to ensure no `Div` node exists.
+## Scenarios Covered by Tests
 
-### 3. Template Comment Handling
-Ensures `{# ... #}` comments are:
-- Recognized as complete comment tokens (not split)
-- Handled consistently across dialects
-- Not partially parsed as braces and hash symbols
+The test suite prevents regression for these important scenarios:
 
-### 4. Complex Scenarios
-Tests real-world usage patterns:
-- Multiline block comments spanning multiple lines
-- Comments at end of statements
-- Comments in the middle of SELECT lists
-- Comments between statements
-- Proper handling of comment delimiters inside string literals
-
-### 5. Regression Prevention
-By testing across multiple dialects and scenarios, we ensure:
-- The fix doesn't break existing functionality
-- Template comments work in non-Snowflake dialects too
-- String literals containing comment delimiters are not affected
-- All edge cases are covered
-
-## File Structure
-
+### 1. Single-Line Comments After Values
+```sql
+SELECT 1 // this should work now
 ```
-.
-├── snowflake.py              # Snowflake dialect implementation (FIXED)
-├── minimal_repro.py          # Minimal reproduction of issue #1763
-├── issue_test.py             # Basic test for three comment styles
-├── test_comprehensive.py     # Comprehensive test suite
-├── run_tests.py              # Python test runner script
-├── run_tests.ps1             # PowerShell test runner script
-└── README.md                 # This file
+**Expected**: Parses successfully as `SELECT 1`
+
+### 2. Comments Not Affecting AST
+```sql
+-- These should produce identical ASTs:
+SELECT 1
+SELECT 1 -- with comment
+SELECT 1 // with different comment
 ```
+**Expected**: All produce identical AST
+
+### 3. Comments Not Mistaken for Operators
+```sql
+SELECT 1 // not division
+```
+**Expected**: No division operator in the AST
+
+### 4. Multiple Comment Styles in One Query
+```sql
+SELECT 1 -- first
+     , 2 // second
+```
+**Expected**: Parses successfully
+
+### 5. Block Comments with `//` Style
+```sql
+SELECT /* inline */ 1 // end of line
+```
+**Expected**: Parses successfully
+
+### 6. Template Comments Work Everywhere
+```sql
+SELECT 1 {# template comment #}
+```
+**Expected**: Works in Snowflake and other dialects
 
 ## Implementation Details
 
-### Comment Token Processing
+### Tokenizer Architecture
 
-When the tokenizer encounters potential comment delimiters:
+The sqlglot tokenizer processes SQL in several phases:
+1. **Tokenization**: Breaks input into tokens (identifiers, operators, keywords, etc.)
+2. **Comment Removal**: Strips comments based on the `COMMENTS` configuration
+3. **Token Classification**: Identifies token types
+4. **Parsing**: Builds AST from tokens
 
-1. **Tokenization Phase**: Comments are identified and tokenized as `COMMENT` tokens
-2. **Normalization**: All comment styles are normalized to `/* ... */` format in the output
-3. **AST Construction**: Comments are either preserved or stripped based on the `comments` parameter
-4. **String Safety**: Comment delimiters inside string literals are properly ignored
+Comments are removed during phase 2, which is why they don't appear in the AST.
 
-### Dialect-Specific Behavior
+### Why the Fix Works
 
-The `COMMENTS` configuration in the Snowflake tokenizer only affects Snowflake dialect parsing. Other dialects maintain their own comment configurations:
+By adding `//` to the `COMMENTS` list in `Snowflake.Tokenizer`, we tell the tokenizer:
+- When you see `//`, treat everything until the end of line as a comment
+- Remove this content before parsing begins
+- Don't try to tokenize `//` as two division operators
 
-- **Snowflake**: `--`, `//`, `/* */`, `{# #}`
-- **PostgreSQL**: `--`, `/* */`, `{# #}` (inherits from base + template)
-- **MySQL**: `--`, `#`, `/* */`, `{# #}` (inherits from base + template)
-- **Standard SQL**: `--`, `/* */`, `{# #}`
+This is exactly how `--` comments already worked; we're just adding `//` to the same mechanism.
 
-## Contributing
+### Template Comments
 
-When making changes to comment handling:
+Template comments `{# ... #}` are added with block-style syntax `("{#", "#}")` to indicate they have a start and end delimiter (unlike `//` or `--` which go to end of line).
 
-1. **Update Tests**: Add test cases to [test_comprehensive.py](test_comprehensive.py)
-2. **Test All Scenarios**: Run the complete test suite with `python run_tests.py`
-3. **Document Changes**: Update this README with any new comment syntax support
-4. **Cross-Dialect Testing**: Ensure changes don't break other dialects
+## Files in This Repository
+
+- **[snowflake.py](snowflake.py)**: The Snowflake dialect implementation with the fix
+- **[issue_test.py](issue_test.py)**: Comprehensive test suite (5 test suites, multiple test cases)
+- **[minimal_repro.py](minimal_repro.py)**: Minimal reproduction of the original issue
+- **[run_tests.py](run_tests.py)**: Test runner script for easy execution
+- **[README.md](README.md)**: This documentation file
+
+## Verification Steps
+
+To verify the fix is working:
+
+1. **Run the test suite**:
+   ```bash
+   python run_tests.py
+   ```
+
+2. **Check exit code**: The script exits with code 0 on success, 1 on failure
+
+3. **Review output**: All test suites should show ✓ PASSED
+
+4. **Manual verification**: Try parsing a Snowflake query with `//` comments:
+   ```python
+   from sqlglot import parse_one
+   result = parse_one("SELECT 1 // comment", read='snowflake')
+   print(result)  # Should print: SELECT 1
+   ```
+
+## Regression Prevention
+
+The test suite is designed to catch regressions in several areas:
+
+1. **Core fix**: `//` comments must work in Snowflake
+2. **Existing functionality**: `--` and `/* */` must still work
+3. **Template comments**: `{# #}` must work in all dialects
+4. **AST integrity**: Comments must not affect semantic meaning
+5. **No operator confusion**: `//` must not be parsed as division
+
+## Future Considerations
+
+### Potential Extensions
+
+While this fix addresses the immediate issue, future improvements could include:
+
+1. **Nested block comments**: Some databases support nested `/* /* */ */` comments
+2. **Comment preservation**: For code formatters, preserving comments in the AST
+3. **Position tracking**: Storing comment locations for IDE integrations
+4. **Hint comments**: Special comments that affect query execution (e.g., optimizer hints)
+
+### Maintenance Notes
+
+When updating the Snowflake dialect:
+- Ensure `COMMENTS` configuration is maintained
+- Run the test suite after any tokenizer changes
+- Test with real Snowflake queries that use all comment styles
+
+## Conclusion
+
+This fix resolves issue #1763 by properly configuring the Snowflake tokenizer to recognize `//` as a comment delimiter. The comprehensive test suite ensures the fix works correctly and prevents future regressions.
+
+All three standard comment styles in Snowflake (`--`, `/* */`, and `//`) now work correctly, and template comments (`{# #}`) are supported for templating use cases.
 
 ## References
 
-- **Issue #1763**: Snowflake `//` comments not supported
-- **PR #1765**: Fix for issue #1763 (this implementation)
-- [Snowflake SQL Documentation](https://docs.snowflake.com/en/sql-reference.html)
-- [Snowflake Comment Syntax](https://docs.snowflake.com/en/sql-reference/sql-syntax.html)
+- **Original Issue**: #1763 - Snowflake dialect should support // as a comment delimiter
+- **Snowflake Documentation**: [Comments in Snowflake](https://docs.snowflake.com/en/sql-reference/sql-all)
+- **sqlglot Repository**: The parent project implementing SQL parsing and transpilation
 
-## License
+---
 
-This code is part of the sqlglot project. See the main project for license information.
+**Last Updated**: January 29, 2026
+**Status**: ✅ Fixed and Tested
