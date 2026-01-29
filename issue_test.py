@@ -9,7 +9,9 @@ Actual: Throws parse error (in versions before PR 1765)
 """
 
 import sys
-sys.path.insert(0, 'C:/Bug_Bash/sqlglot/sqlglot')
+from pathlib import Path
+# Ensure we use the local sqlglot implementation bundled with this repo
+sys.path.insert(0, str(Path(__file__).resolve().parent))
 
 from sqlglot import parse_one
 
@@ -51,7 +53,8 @@ def test_snowflake_comments():
     print(f"Summary: {sum(results)}/{len(results)} tests passed")
     print("=" * 60)
     
-    return all(results)
+    # Assert all tests passed to integrate with pytest cleanly
+    assert all(results)
 
 
 if __name__ == "__main__":

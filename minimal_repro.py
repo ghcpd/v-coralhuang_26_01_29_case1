@@ -7,7 +7,9 @@ Actual: Throws parse error
 """
 
 import sys
-sys.path.insert(0, 'C:/Bug_Bash/sqlglot/sqlglot')
+from pathlib import Path
+# Ensure we use the local sqlglot implementation bundled with this repo
+sys.path.insert(0, str(Path(__file__).resolve().parent))
 
 from sqlglot import parse_one
 
