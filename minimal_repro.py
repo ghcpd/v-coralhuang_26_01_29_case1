@@ -6,9 +6,6 @@ Expected: Should parse successfully (works in Snowflake)
 Actual: Throws parse error
 """
 
-import sys
-sys.path.insert(0, 'C:/Bug_Bash/sqlglot/sqlglot')
-
 from sqlglot import parse_one
 
 def test_snowflake_double_slash_comment():
