@@ -3,13 +3,11 @@ Minimal reproducible code for issue #1763
 Issue: Snowflake dialect should support // as a comment delimiter
 Query: SELECT 1 // hi this is a comment
 Expected: Should parse successfully (works in Snowflake)
-Actual: Throws parse error
+Actual: Throws parse error (before the fix)
 """
 
-import sys
-sys.path.insert(0, 'C:/Bug_Bash/sqlglot/sqlglot')
-
 from sqlglot import parse_one
+import dialects_clean as dialects
 
 def test_snowflake_double_slash_comment():
     """Test that Snowflake dialect can parse // comments"""
@@ -20,7 +18,7 @@ def test_snowflake_double_slash_comment():
     print("-" * 50)
     
     try:
-        result = parse_one(query, read='snowflake')
+        result = parse_one(query, read=dialects.Snowflake)
         print("✓ Parsing succeeded!")
         print(f"Result: {result}")
         return True
