@@ -9,7 +9,7 @@ Actual: Throws parse error (in versions before PR 1765)
 """
 
 import sys
-sys.path.insert(0, 'C:/Bug_Bash/sqlglot/sqlglot')
+
 
 from sqlglot import parse_one
 
